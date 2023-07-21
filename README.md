@@ -1,2 +1,3 @@
 # codingTA
-# codingTA
+
+Buat skripsi S!
