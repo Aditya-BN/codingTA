@@ -3,6 +3,7 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <WiFiMulti.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
@@ -11,9 +12,11 @@
 #include <TimeLib.h>
 
 #include <Wire.h>
-#include "ADS1X15.h"
+#include <ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
+#define debug 1
 
 ADS1115 ADS0(0x48);
 ADS1115 ADS1(0x49);
@@ -24,22 +27,16 @@ int idx = 0;
 uint32_t lastTime = 0;
 
 //**********************WIFI**************************//
-//**************hotspot laptop************************//
-const char *ssid = "Base Camp X Tensi";
-const char *password = "janganlupa1";
-IPAddress staticIP(111, 11, 11, 32);
-IPAddress gateway(11, 11, 11, 1);
-IPAddress subnet(255, 255, 255, 0);
-
+WiFiMulti wifiAP;
 WiFiClient espClient;
+
+//************************* MQTT ****************************//
+const char *mqtt_server = "tcp://0.tcp.ap.ngrok.io";
+uint16_t mqtt_port = 15352;
+
 PubSubClient client(espClient);
 const String Sen_ID = "Agrisoil_1";
 long lastReconnectAttempt = 0;
-
-//************************* MQTT ****************************//
-// const char* mqtt_server = "11.11.11.55";
-const char *mqtt_server = "tcp://0.tcp.ap.ngrok.io";
-uint16_t mqtt_port = 15352;
 
 void callback(char *topic, byte *payload, unsigned int length);
 
@@ -63,7 +60,6 @@ RTC_DATA_ATTR int bootCount = 0;
 
 void setup()
 {
-
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector
 
   //********************** turn on relay **************************
