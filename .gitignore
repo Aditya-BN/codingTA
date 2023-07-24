@@ -2,3 +2,7 @@
 ###################
 build/
 *.bin
+
+# Secret credential #
+#####################
+secret.h
