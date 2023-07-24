@@ -6,4 +6,3 @@ build/
 # Secret credential #
 #####################
 secret.h
-secret.h
