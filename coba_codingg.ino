@@ -14,6 +14,7 @@
 
 #include <Wire.h>
 #include <ADS1X15.h>
+#include <TinyGPSPlus.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -237,7 +238,7 @@ void setup()
   while (millis() - skrg >= 5000)
   {
     while (Serial.available() > 0)
-    if (gps.encode(ss.read()))
+    if (gps.encode(Serial.read()))
       displayInfo();
 
     // if (gps.charsProcessed() < 10)
@@ -249,6 +250,9 @@ void setup()
   //******************** this will makes u wakes up again.
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
+
+  digitalWrite(18, LOW);
+  digitalWrite(19, LOW);
 
   //******************** Hidup tak segan, mati tak mau.
   //******************** mending turu aja
@@ -277,8 +281,13 @@ void displayInfo()
     // Serial.print(gps.location.lat(), 6);
     // Serial.print(F(","));
     // Serial.print(gps.location.lng(), 6);
+    char latString[8];
+    dtostrf(gps.location.lat(), 9, 6, latString);
+    char lngString[8];
+    dtostrf(gps.location.lng(), 9, 6, lngString);
 
-
+    client.publish("agrisoil/loc", latString);
+    client.publish("agrisoil/loc", lngString);
   }
   else
   {
