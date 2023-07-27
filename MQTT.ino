@@ -21,8 +21,7 @@ void MqttConnect()
 
 bool reconnect()
 {
-  // Create a random client ID
-  String clientId = "Cooling tower";
+  String clientId = "Agrisoil_1";
   if (client.connect(clientId.c_str())) {
     client.subscribe("agrisoil/fromserver");
   }

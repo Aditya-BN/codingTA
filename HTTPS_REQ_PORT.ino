@@ -1,4 +1,4 @@
-const String httpsBasicAuth = "httpsUname:httpsPassword" + "@";
+const String httpsBasicAuth = "httpsUname:httpsPassword@";
 const String url = "https://" + httpsBasicAuth + "nodered.agrisoil.my.id/getngrokport";
 
 uint16_t updatedPort()

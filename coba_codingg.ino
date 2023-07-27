@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <WiFiMulti.h>
+#include "./secret.h"
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
@@ -16,18 +17,13 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define debug 1
+#define debug 2
 
 ADS1115 ADS0(0x48);
 ADS1115 ADS1(0x49);
 
-int16_t val0[4] = {0, 0, 0, 0};
-int16_t val1[4] = {0, 0, 0, 0};
-int idx = 0;
-uint32_t lastTime = 0;
-
 //**********************WIFI**************************//
-WiFiMulti wifiAP;
+WiFiMulti wifiMulti;
 WiFiClient espClient;
 
 //************************* MQTT ****************************//
@@ -35,7 +31,7 @@ const char *mqtt_server = "tcp://0.tcp.ap.ngrok.io";
 uint16_t mqtt_port = 15352;
 
 PubSubClient client(espClient);
-const String Sen_ID = "Agrisoil_1";
+// const String Sen_ID = "Agrisoil_1";
 long lastReconnectAttempt = 0;
 
 void callback(char *topic, byte *payload, unsigned int length);
@@ -74,16 +70,55 @@ void setup()
   //*********************** ADS ********************************
   ADS0.begin();
   ADS1.begin();
-  Serial.println(ADS0.isConnected());
-  Serial.println(ADS1.isConnected());
 
-  ADS0.setDataRate(4); // 0 = slow   4 = medium   7 = fast but more noise
-  ADS1.setDataRate(4);
+  ADS0.setGain(0);
+  ADS1.setGain(0);
 
-  idx = 0;
-  ADS_request_all();
+  int16_t npk_1ADC, npk_2ADC, moistADC, phADC;
 
-  //*********************** wake up baby wake up *******************
+  // Baca sekaligus dibuat rerata;
+  for (int8_t i = 0; i < 10; i++)
+  {
+    npk_1ADC += ADS0.readADC(0);
+    npk_2ADC += ADS0.readADC(1);
+
+    moistADC += ADS1.readADC(0);
+    phADC += ADS1.readADC(1);
+    delay(500);
+  }
+
+  npk_1ADC = npk_1ADC/10;
+  npk_2ADC = npk_2ADC/10;
+  moistADC = moistADC/10;
+  phADC = phADC/10;
+
+  float vf0 = ADS0.toVoltage(1);  // voltage factor
+  float vf1 = ADS1.toVoltage(1);  // voltage factor
+
+  float npk_1Volt = npk_1ADC * vf0;
+  float npk_2Volt = npk_2ADC * vf0;
+  float moistVolt = moistADC * vf1;
+  float phVolt = phADC * vf1;
+
+  // code below there migth be looks like "magic"
+  // cuz filled with goddamit magic number.
+  // but it isn't fully true, cuz it came from calibration.
+  // Raw value compared to a "real" value from real produt.
+  float Nval = (-8.1731 * npk_1ADC) + 46510;
+  float Pval = (-0.8921 * npk_1ADC) + 5112;
+  float Kval = (21.2 * npk_1ADC) - 120331;
+
+  // ADC says 4680 when submerged into water,
+  // and 11940 when submerged into nothing.
+  // so it must be (something - 4680)/(11940 - 4680)
+  float moistval = (moistADC * 4680)/(11940 - 4680)*100;
+
+  //idk, just idk. I just lost 3 braincell tried to understand this.
+  //https://depoinovasi.com/produk-975-sensor-ph-tanah-support-arduino.html 
+  float phval = (-0.0136 * phVolt) + 7.5773;
+
+
+  //*********************** so wake me up when.... *******************
 
   // Increment boot number and print it every reboot
   ++bootCount;
@@ -105,7 +140,20 @@ void setup()
   display.clearDisplay();
 
   //*********************** Wifi & MQTT ****************************
-  setup_wifi();
+  // setup_wifi();
+  wifiMulti.addAP(ssid_AP_1, password_AP_1);
+  wifiMulti.addAP(ssid_AP_2, password_AP_2);
+  wifiMulti.addAP(ssid_AP_3, password_AP_3);
+
+  Serial.println("Connecting Wifi...");
+  if (wifiMulti.run() == WL_CONNECTED)
+  {
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
 
