@@ -8,7 +8,7 @@ void setup_wifi()
 
   if (wifiMulti.run() == WL_CONNECTED)
   {
-#ifdef debug > 1
+#ifdef debuglvl > 1
     Serial.println("");
     Serial.println("WiFi connected");
     Serial.println(WiFi.SSID());
@@ -25,7 +25,7 @@ void setup_wifi()
     display.write("Connecting wifi ...");
   }
 
-#ifdef debug> 1
+#ifdef debuglvl> 1
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");

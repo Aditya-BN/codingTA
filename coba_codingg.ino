@@ -18,7 +18,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define debug 2
+#define debuglvl 2
 
 void displayInfo();
 
