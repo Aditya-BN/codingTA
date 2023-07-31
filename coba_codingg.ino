@@ -20,6 +20,9 @@
 
 #define debuglvl 2
 
+TaskHandle_t task2;
+bool mqttConnected = false;
+
 void displayInfo();
 
 ADS1115 ADS0(0x48);
@@ -31,7 +34,7 @@ WiFiClient espClient;
 
 //************************* MQTT ****************************//
 const char *mqtt_server = "tcp://0.tcp.ap.ngrok.io";
-uint16_t mqtt_port = 15352;
+uint16_t mqtt_port = 12115;
 
 PubSubClient client(espClient);
 // const String Sen_ID = "Agrisoil_1";
@@ -63,34 +66,63 @@ RTC_DATA_ATTR int bootCount = 0;
 
 void setup()
 {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector
-
-  //********************** turn on relay **************************
-  pinMode(18, OUTPUT);
-  pinMode(19, OUTPUT);
-  digitalWrite(18, HIGH);
-  digitalWrite(19, HIGH);
+  // disable brownout detector
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
   //*********************** Serial Comm ****************************
   Serial.begin(115200);
 
+  //*********************** so wake me up when.... *******************
+  // Increment boot number and print it every reboot
+  ++bootCount;
+  Serial.println("Boot number: " + String(bootCount));
+
+  // Print the wakeup reason for ESP32
+  print_wakeup_reason();
+
+  //********************** turn on relay **************************
+  Serial.println("Menyalakan relay baterai 1");
+  pinMode(18, OUTPUT);
+  pinMode(19, OUTPUT);
+  digitalWrite(18, HIGH);
+  // digitalWrite(19, HIGH);
+
   //************************** OLED ************************************
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
-  { // Address 0x3D for 128x64
+  {
     Serial.println(F("Can't find OLED I2C"));
   }
   else
   {
     oled_available = true;
+    Serial.println("Layar oled ada");
   }
+
+
+  //*********************** Wifi & MQTT ****************************
+  setup_wifi();
+
+  xTaskCreatePinnedToCore(
+      sendData, /* Task function. */
+      "mqtt loop",  /* name of task. */
+      10000,    /* Stack size of task */
+      NULL,     /* parameter of the task */
+      0,        /* priority of the task */
+      &task2,   /* Task handle to keep track of created task */
+      0);       /* pin task to core 0 */
+  // delay(500);
+
+  Serial.print("Void setup jalan di: ");
+  Serial.println(xPortGetCoreID());
+
   display.display();
   display.clearDisplay();
 
-  display.setTextSize(2);         // set text size
-  display.setTextColor(WHITE);    // set text color
-  display.setCursor(2, 2);       // set position to display (x,y)
-  display.println("Membaca \n sensor...."); // set text
-  display.display();              // display on OLED
+  display.setTextSize(2);                   // set text size
+  display.setTextColor(WHITE);              // set text color
+  display.setCursor(0, 0);                  // set position to display (x,y)
+  display.println("Membaca \n sensor..."); // set text
+  display.display();                        // display on OLED
 
   //*********************** ADS ********************************
   ADS0.begin();
@@ -101,9 +133,12 @@ void setup()
 
   int16_t npk_1ADC, npk_2ADC, moistADC, phADC;
 
+  Serial.println("Membaca sensor");
   // Baca sekaligus dibuat rerata;
-  for (int8_t i = 0; i < 10; i++)
+  for (uint8_t i = 0; i < 10; i++)
   {
+    // Serial.println("Looping here");
+    // Serial.println(i);
     npk_1ADC += ADS0.readADC(0);
     npk_2ADC += ADS0.readADC(1);
 
@@ -112,6 +147,7 @@ void setup()
     delay(500);
   }
 
+  Serial.println("Menghitung nilai berdasarkan bacaan sensor");
   npk_1ADC = npk_1ADC / 10;
   npk_2ADC = npk_2ADC / 10;
   moistADC = moistADC / 10;
@@ -150,13 +186,13 @@ void setup()
   // https://depoinovasi.com/produk-975-sensor-ph-tanah-support-arduino.html
   float phval = (-0.0136 * phVolt) + 7.5773;
 
-
-// delay(2000);
+  Serial.println("Menampilkan pada oled");
+  // delay(2000);
   display.clearDisplay();
-  display.setTextSize(1);         // set text size
-  display.setTextColor(WHITE);    // set text color
-  display.setCursor(2, 2);       // set position to display (x,y)
-  display.print("N: "); // set text
+  display.setTextSize(1);      // set text size
+  display.setTextColor(WHITE); // set text color
+  display.setCursor(2, 2);     // set position to display (x,y)
+  display.print("N: ");        // set text
   display.println(Nval);
   display.print("P: "); // set text
   display.println(Pval);
@@ -165,87 +201,56 @@ void setup()
   display.print("Moist: "); // set text
   display.println(moistval);
 
-  display.display();              // display on display
+  display.display(); // display on display
 
-  //*********************** so wake me up when.... *******************
-
-  // Increment boot number and print it every reboot
-  ++bootCount;
-  Serial.println("Boot number: " + String(bootCount));
-
-  // Print the wakeup reason for ESP32
-  print_wakeup_reason();
-
-  //*********************** Wifi & MQTT ****************************
-  // setup_wifi();
-  wifiMulti.addAP(ssid_AP_1, password_AP_1);
-  wifiMulti.addAP(ssid_AP_2, password_AP_2);
-  wifiMulti.addAP(ssid_AP_3, password_AP_3);
-
-  Serial.println("Connecting Wifi...");
-  if (wifiMulti.run() == WL_CONNECTED)
-  {
-    Serial.println("");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-  }
-
-  client.setServer(mqtt_server, mqtt_port);
-  client.setCallback(callback);
-
-  MqttConnect();
-
-
-//************************ UPLOAD DATA ************************
-    char moistString[8];
-    dtostrf(moistval, 1, 2, moistString);
-    char phString[8];
-    dtostrf(phval, 1, 2, phString);
-    char nitString[8];
-    dtostrf(Nval, 1, 2, nitString);
-    char phosString[8];
-    dtostrf(Pval, 1, 2, phosString);
-    char kalString[8];
-    dtostrf(Kval, 1, 2, kalString);
-
-    // Serial.print("Humidity: ");
-    // Serial.println(humString);
-    client.publish("agrisoil/val/moist", moistString);
-    client.publish("agrisoil/val/ph", phString);
-    client.publish("agrisoil/val/nit", nitString);
-    client.publish("agrisoil/val/phos", phosString);
-    client.publish("agrisoil/val/kal", kalString);
-
-
-    // RAW DATA
-    dtostrf(moistADC, 1, 2, moistString);
-    dtostrf(phADC, 1, 2, phString);
-    char npk_1String[8];
-    dtostrf(npk_1ADC, 1, 2, npk_1String);
-    char npk_2String[8];
-    dtostrf(npk_2ADC, 1, 2, npk_2String);
-
-    client.publish("agrisoil/raw/moist", moistString);
-    client.publish("agrisoil/raw/ph", phString);
-    client.publish("agrisoil/raw/npk1", npk_1String);
-    client.publish("agrisoil/raw/npk2", npk_2String);
-
-  //*********************** GPS *******************************
   
+  Serial.println("publish data");
+  //************************ UPLOAD DATA ************************
+  char moistString[8];
+  dtostrf(moistval, 1, 2, moistString);
+  char phString[8];
+  dtostrf(phval, 1, 2, phString);
+  char nitString[8];
+  dtostrf(Nval, 1, 2, nitString);
+  char phosString[8];
+  dtostrf(Pval, 1, 2, phosString);
+  char kalString[8];
+  dtostrf(Kval, 1, 2, kalString);
 
-  uint16_t skrg = millis();
-  while (millis() - skrg >= 5000)
-  {
-    while (Serial.available() > 0)
-    if (gps.encode(Serial.read()))
-      displayInfo();
+  // Serial.print("Humidity: ");
+  // Serial.println(humString);
+  client.publish("agrisoil/val/moist", moistString);
+  client.publish("agrisoil/val/ph", phString);
+  client.publish("agrisoil/val/nit", nitString);
+  client.publish("agrisoil/val/phos", phosString);
+  client.publish("agrisoil/val/kal", kalString);
 
-    // if (gps.charsProcessed() < 10)
-    // {
-    //   Serial.println(F("No GPS detected: check wiring."));
-    // }
-  }
+  // SEND RAW DATA
+  dtostrf(moistADC, 1, 2, moistString);
+  dtostrf(phADC, 1, 2, phString);
+  char npk_1String[8];
+  dtostrf(npk_1ADC, 1, 2, npk_1String);
+  char npk_2String[8];
+  dtostrf(npk_2ADC, 1, 2, npk_2String);
+
+  client.publish("agrisoil/raw/moist", moistString);
+  client.publish("agrisoil/raw/ph", phString);
+  client.publish("agrisoil/raw/npk1", npk_1String);
+  client.publish("agrisoil/raw/npk2", npk_2String);
+
+  // //*********************** GPS *******************************
+  // uint16_t skrg = millis();
+  // while (millis() - skrg >= 5000)
+  // {
+  //   while (Serial.available() > 0)
+  //   if (gps.encode(Serial.read()))
+  //     displayInfo();
+
+  //   // if (gps.charsProcessed() < 10)
+  //   // {
+  //   //   Serial.println(F("No GPS detected: check wiring."));
+  //   // }
+  // }
 
   //******************** this will makes u wakes up again.
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
@@ -256,7 +261,7 @@ void setup()
 
   //******************** Hidup tak segan, mati tak mau.
   //******************** mending turu aja
-  display.setCursor(2, 50);       // set position to display (x,y)
+  display.setCursor(2, 50);        // set position to display (x,y)
   display.println("Hibernasi..."); // set text
   delay(1000);
 
@@ -273,24 +278,24 @@ void loop()
   // put your main code here, to run repeatedly:
 }
 
-void displayInfo()
-{
-  Serial.print(F("Location: ")); 
-  if (gps.location.isValid())
-  {
-    // Serial.print(gps.location.lat(), 6);
-    // Serial.print(F(","));
-    // Serial.print(gps.location.lng(), 6);
-    char latString[8];
-    dtostrf(gps.location.lat(), 9, 6, latString);
-    char lngString[8];
-    dtostrf(gps.location.lng(), 9, 6, lngString);
+// void displayInfo()
+// {
+//   Serial.print(F("Location: "));
+//   if (gps.location.isValid())
+//   {
+//     // Serial.print(gps.location.lat(), 6);
+//     // Serial.print(F(","));
+//     // Serial.print(gps.location.lng(), 6);
+//     char latString[8];
+//     dtostrf(gps.location.lat(), 9, 6, latString);
+//     char lngString[8];
+//     dtostrf(gps.location.lng(), 9, 6, lngString);
 
-    client.publish("agrisoil/loc", latString);
-    client.publish("agrisoil/loc", lngString);
-  }
-  else
-  {
-    Serial.print(F("INVALID"));
-  }
-}
+//     client.publish("agrisoil/loc", latString);
+//     client.publish("agrisoil/loc", lngString);
+//   }
+//   else
+//   {
+//     Serial.print(F("INVALID"));
+//   }
+// }
